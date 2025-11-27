@@ -15,7 +15,7 @@ static int epfd = -1;
 
 // TODO：处理 send的问题 线程池
 
-struct connection
+struct Connection
 {
     int fd;
     std::vector<char> read_buffer;
@@ -33,13 +33,13 @@ void set_nonblocking(int fd)
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-void close_connection(connection *conn)
+void close_connection(Connection *conn)
 {
     close(conn->fd);
     delete conn;
 }
 
-bool handle_write(connection *conn)
+bool handle_write(Connection *conn)
 {
     // std::cout << "Handle write event on fd: " << conn->fd << std::endl;
     // 立即尝试写，写到 EAGAIN 或写完
@@ -81,7 +81,7 @@ bool handle_write(connection *conn)
     return true; // 写完
 }
 
-bool handle_client_data(connection *conn)
+bool handle_client_data(Connection *conn)
 {
     // 读取数据
     // 注意这里：循环读取，直到读到非阻塞边界
@@ -215,7 +215,7 @@ int main()
     }
 
     // 注册监听事件 监听的类型为可读事件 监听的文件描述符为listen_fd
-    connection *conn_listen = new connection;
+    Connection *conn_listen = new Connection;
     conn_listen->fd = listen_fd;
     struct epoll_event ev;
     ev.events = EPOLLIN;
@@ -250,7 +250,7 @@ int main()
         // 处理就绪的事件
         for (int n = 0; n < nfds; ++n)
         {
-            connection *ptr = static_cast<connection *>(events[n].data.ptr);
+            Connection *ptr = static_cast<Connection *>(events[n].data.ptr);
 
             if (ptr->fd == listen_fd)
             {
@@ -273,7 +273,7 @@ int main()
                         }
                     }
 
-                    connection *conn = new connection;
+                    Connection *conn = new Connection;
                     conn->fd = conn_fd;
                     conn->read_offset = 0;
                     conn->write_offset = 0;
