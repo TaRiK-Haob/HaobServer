@@ -1,12 +1,12 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
-#endif // CONNECTION_H
 #include <vector>
 #include <netinet/in.h>
 
+#include <atomic>
+
 #define BUFFER_SIZE 4096
 enum State {READ, WRITE, READ_DONE, WRITE_DONE, CLOSE, ERROR};
-// TODO: 添加更多状态如解析HTTP请求等
 
 class Connection
 {
@@ -25,4 +25,7 @@ public:
     void handle_write();
 
     State state = READ;
+
+    std::atomic<bool> in_pool{false};
 };
+#endif // CONNECTION_H

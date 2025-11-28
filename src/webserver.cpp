@@ -1,7 +1,14 @@
-#ifndef WEBSERVER_H
-#define WEBSERVER_H
 #include "webserver.h"
-#endif // WEBSERVER_H
+#include "connection.h"
+#include "thread_pool.h"
+
+#include <iostream>
+#include <stdlib.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/eventfd.h>
 
 Webserver::Webserver() {}
 
@@ -10,10 +17,9 @@ Webserver::~Webserver()
     // 清理资源 关闭epoll实例和监听套接字
     close(_epfd);
     close(_listen_fd);
+    close(_notify_fd);
 
     delete thread_pool;
-
-    delete[] &events;
 }
 
 bool Webserver::init(const char *ip, int port)
@@ -79,7 +85,7 @@ bool Webserver::init(const char *ip, int port)
     }
 
     // 初始化线程池
-    thread_pool = new ThreadPool(this, 4); // 创建一个包含4个线程的线程池
+    thread_pool = new ThreadPool(this, 5); // 创建一个包含5个线程的线程池
 
     _notify_fd = eventfd(0, EFD_NONBLOCK);
 
@@ -116,10 +122,14 @@ void Webserver::loop()
 
             if (ptr->fd == _listen_fd)
             {
+                // 处理新的连接请求
                 _handle_connection();
             }
             else if (ptr->fd == _notify_fd)
             {
+                // std::cout << "Handling notify event from thread pool." << std::endl;
+                // 处理来自线程池的通知
+                // 读取事件fd的值 清空事件
                 uint64_t value;
                 read(_notify_fd, &value, sizeof(uint64_t));
                 // 处理通知事件
@@ -135,6 +145,7 @@ void Webserver::loop()
                 }
                 else if (events[n].events & EPOLLOUT)
                 {
+                    std::cout << "Handling EPOLLOUT event for fd: " << ptr->fd << std::endl;
                     thread_pool->enqueue(ptr);
                 }
             }
@@ -160,6 +171,7 @@ void Webserver::_set_nonblocking(int fd)
 
 void Webserver::_close_connection(Connection *conn)
 {
+    // std::cout << "Closing connection, fd: " << conn->fd << std::endl;
     epoll_ctl(_epfd, EPOLL_CTL_DEL, conn->fd, nullptr);
     close(conn->fd);
     delete conn;
@@ -198,7 +210,7 @@ void Webserver::_handle_connection()
 
         // 将连接套接字添加到epoll实例中
         epoll_event client_ev;
-        client_ev.events = EPOLLIN; // 监听可读事件
+        client_ev.events = EPOLLIN | EPOLLONESHOT; // 监听可读事件
         client_ev.data.ptr = conn;  // 存储连接结构体指针
 
         // 添加到epoll
@@ -226,18 +238,23 @@ void Webserver::_handle_notify(uint64_t value)
             notify_queue.pop();
         }
 
-        if (conn->state == READ_DONE)
-        {
-            // 暂时不需要处理这个状态，因为worker不会触发READ_DONE状态
+        // std::cout << "Processing notify for connection fd: " << conn->fd << ", state: " << conn->state << std::endl;
+
+        if(conn->state == WRITE){
+            // 修改epoll事件为可写
+            epoll_event ev;
+            ev.events = EPOLLOUT | EPOLLONESHOT;
+            ev.data.ptr = conn;
+            epoll_ctl(_epfd, EPOLL_CTL_MOD, conn->fd, &ev);
+        }else if(conn->state == READ){
+            // 修改epoll事件为可读
+            epoll_event ev;
+            ev.events = EPOLLIN | EPOLLONESHOT;
+            ev.data.ptr = conn;
+            epoll_ctl(_epfd, EPOLL_CTL_MOD, conn->fd, &ev);
         }
-        else if (conn->state == WRITE_DONE)
-        {
-            // 关闭连接
-            _close_connection(conn);
-        }
-        else if (conn->state == ERROR)
-        {
-            // 关闭连接
+        else{
+            // 目前只处理WRITE\READ状态 其他状态直接关闭连接
             _close_connection(conn);
         }
     }

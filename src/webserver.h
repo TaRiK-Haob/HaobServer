@@ -1,19 +1,15 @@
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <fcntl.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/epoll.h>
-#include <iostream>
-#include <sys/eventfd.h>
-
-#include "connection.h"
-#include "thread_pool.h"
+#ifndef WEBSERVER_H
+#define WEBSERVER_H
 
 #define MAX_EVENTS 1024
+
+#include <sys/epoll.h>
+#include <mutex>
+#include <queue>
+#include <cstdint>
+
+class ThreadPool;
+class Connection;
 
 class Webserver{
 public:
@@ -41,3 +37,5 @@ private:
     std::queue<Connection*> notify_queue;
     std::mutex notify_mutex;
 };
+
+#endif // WEBSERVER_H

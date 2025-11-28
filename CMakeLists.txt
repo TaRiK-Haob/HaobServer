@@ -10,4 +10,4 @@ include_directories(
     # ${CMAKE_SOURCE_DIR}/CGImysql
 )
 
-add_executable(HaoBServer src/main.cpp src/connection.cpp src/webserver.cpp)
+add_executable(HaoBServer src/main.cpp src/connection.cpp src/webserver.cpp src/thread_pool.cpp)

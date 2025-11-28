@@ -40,6 +40,8 @@ void Connection::handle_write()
         }
     }
 
+    // 写完所有数据
+    // std::cout << "Finished writing response to fd: " << this->fd << std::endl;
     this->state = WRITE_DONE;
     return; // 写完
 }
@@ -76,7 +78,8 @@ void Connection::handle_client_data()
             {
                 // 因为是EPOLLOUT + 水平触发，所以读到非阻塞边界就停止
                 // 因此只需要退出循环，后续等待epoll_wait重新唤醒
-                this->state = READ;
+                // std::cout << "Reached non-blocking boundary on read for fd: " << this->fd << std::endl;
+                this->state = READ_DONE;
                 break; // 读到非阻塞边界，后续由epoll重新唤醒
             }
             else
