@@ -5,6 +5,8 @@
 #include <netinet/in.h>
 
 #define BUFFER_SIZE 4096
+enum State {READ, WRITE, READ_DONE, WRITE_DONE, CLOSE, ERROR};
+// TODO: 添加更多状态如解析HTTP请求等
 
 class Connection
 {
@@ -19,6 +21,8 @@ public:
     sockaddr_in client_addr;
     socklen_t client_len;
 
-    bool handle_client_data();
-    bool handle_write();
+    void handle_client_data();
+    void handle_write();
+
+    State state = READ;
 };

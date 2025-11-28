@@ -2,28 +2,19 @@
 #include <queue>
 #include <mutex>
 
-enum TaskType {READ, WRITE, CLOSE};
+class Webserver; // 前向声明
 
-template <typename T>
-class Task{
-public:
-    T* conn;
-    TaskType type;
-
-    Task(T* c, TaskType t): conn(c), type(t) {}
-};
-
-template <typename T>
 class ThreadPool
 {
 public:
-    ThreadPool(size_t numThreads);
+    ThreadPool(Webserver *webserver, size_t numThreads);
     ~ThreadPool();
-    bool enqueue(Task<T> *task);
+    bool enqueue(Connection *task);
 
 private:
+    Webserver *webserver;
     std::vector<std::thread> thread_list;
-    std::queue<Task<T> *> tasks;
+    std::queue<Connection *> tasks;
 
     std::mutex queue_mutex;
     // std::condition_variable condition;
@@ -32,26 +23,31 @@ private:
     void worker();
 };
 
-template <typename T>
-ThreadPool<T>::ThreadPool(size_t numThreads)
+
+ThreadPool::ThreadPool(Webserver *webserver, size_t numThreads)
 {
+    this->webserver = webserver;
     // 初始化线程池，创建工作线程
     for (size_t i = 0; i < numThreads; ++i)
     {
         thread_list.emplace_back(std::thread(&ThreadPool::worker, this));
     }
-
 }
 
-template <typename T>
-ThreadPool<T>::~ThreadPool()
+
+ThreadPool::~ThreadPool()
 {
     // 清理资源，停止线程等
-    delete thread_list;
+    for (std::thread &thread : thread_list)
+    {
+        if (thread.joinable())
+            thread.join();
+    }
+    thread_list.clear();
 }
 
-template <typename T>
-bool ThreadPool<T>::enqueue(Task<T> *task)
+
+bool ThreadPool::enqueue(Connection *task)
 {
     // 将任务添加到任务队列
     std::lock_guard<std::mutex> lock(queue_mutex);
@@ -59,25 +55,33 @@ bool ThreadPool<T>::enqueue(Task<T> *task)
     return true;
 }
 
-template <typename T>
-void ThreadPool<T>::worker()
+void ThreadPool::worker()
 {
     // 工作线程函数，从任务队列中获取任务并执行
     while (true)
     {
-        Task<T> *task;
+        // 获取任务
+        Connection *conn;
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             if (tasks.empty())
                 continue;
-            task = tasks.front();
+            conn = tasks.front();
             tasks.pop();
         }
+
         // 执行任务
-        if(task->type == READ){
-            task->conn->handle_client_data();
-        } else if(task->type == WRITE){
-            task->conn->handle_write();
+        // worker只负责读写操作，业务逻辑交给主线程处理
+        if (conn->state == READ)
+        {
+            conn->handle_client_data();
         }
+        else if (conn->state == WRITE)
+        {
+            conn->handle_write();
+        }
+
+        // 通知主线程处理结果
+        webserver->push_notify(conn);
     }
 }

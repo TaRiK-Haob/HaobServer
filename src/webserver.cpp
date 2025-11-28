@@ -3,74 +3,93 @@
 #include "webserver.h"
 #endif // WEBSERVER_H
 
-Webserver::Webserver(){}
+Webserver::Webserver() {}
 
-Webserver::~Webserver(){}
+Webserver::~Webserver()
+{
+    // 清理资源 关闭epoll实例和监听套接字
+    close(_epfd);
+    close(_listen_fd);
+
+    delete thread_pool;
+
+    delete[] &events;
+}
 
 bool Webserver::init(const char *ip, int port)
 {
     // 创建套接字
-    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd == -1)
+    _listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (_listen_fd == -1)
     {
         perror("socket creation failed");
         return false;
     }
 
     // 设置为非阻塞模式（可选）
-    set_nonblocking(listen_fd);
+    _set_nonblocking(_listen_fd);
 
     // 设置地址复用选项
     int opt = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+    setsockopt(_listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(_listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
 
     // 绑定地址和端口
-    struct sockaddr_in server_addr;
+    sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     inet_pton(AF_INET, ip, &server_addr.sin_addr);
     server_addr.sin_port = htons(port);
-    if (bind(listen_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)))
+    if (bind(_listen_fd, (sockaddr *)&server_addr, sizeof(server_addr)))
     {
         perror("bind failed");
-        close(listen_fd);
+        close(_listen_fd);
         return false;
     }
 
     // 监听端口
-    listen(listen_fd, 10);
+    listen(_listen_fd, 10);
 
     // 创建epoll实例
-    Webserver::epfd = epoll_create1(0);
+    Webserver::_epfd = epoll_create1(0);
     // ===============给 static 变量赋值 ==================
     // 保证创建的connection实例可以访问epfd
-    Connection::epfd = Webserver::epfd;
+    Connection::epfd = Webserver::_epfd;
     // ================================================
-    if (epfd == -1)
+    if (_epfd == -1)
     {
         perror("epoll_create1 failed");
-        close(listen_fd);
+        close(_listen_fd);
         return false;
     }
 
     // 注册监听事件 监听的类型为可读事件 监听的文件描述符为listen_fd
     Connection *conn_listen = new Connection;
-    conn_listen->fd = listen_fd;
-    struct epoll_event ev;
+    conn_listen->fd = _listen_fd;
+    epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.ptr = conn_listen;
 
     // 将监听套接字添加到epoll实例
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1)
+    if (epoll_ctl(_epfd, EPOLL_CTL_ADD, _listen_fd, &ev) == -1)
     {
         perror("epoll_ctl failed");
-        close(listen_fd);
-        close(epfd);
+        close(_listen_fd);
+        close(_epfd);
         return false;
     }
 
-    // 创建线程池
-    // ThreadPool<Connection> thread_pool(4);
+    // 初始化线程池
+    thread_pool = new ThreadPool(this, 4); // 创建一个包含4个线程的线程池
+
+    _notify_fd = eventfd(0, EFD_NONBLOCK);
+
+    Connection *notify_ptr = new Connection;
+    notify_ptr->fd = _notify_fd;
+
+    epoll_event notify_ev;
+    notify_ev.events = EPOLLIN;
+    notify_ev.data.ptr = notify_ptr;
+    epoll_ctl(_epfd, EPOLL_CTL_ADD, _notify_fd, &notify_ev);
 
     std::cout << "Server listening on port 8080..." << std::endl;
 
@@ -83,7 +102,7 @@ void Webserver::loop()
     while (1)
     {
         // 阻塞等待事件发生
-        int nfds = epoll_wait(epfd, events, MAX_EVENTS, -1);
+        int nfds = epoll_wait(_epfd, events, MAX_EVENTS, -1);
         if (nfds == -1)
         {
             perror("epoll_wait failed");
@@ -95,108 +114,132 @@ void Webserver::loop()
         {
             Connection *ptr = static_cast<Connection *>(events[n].data.ptr);
 
-            if (ptr->fd == listen_fd)
+            if (ptr->fd == _listen_fd)
             {
-                while (true)
-                {
-                    // 有新的连接请求
-                    struct sockaddr_in client_addr;
-                    socklen_t client_len = sizeof(client_addr);
-
-                    int conn_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
-
-                    if (conn_fd < 0)
-                    {
-                        if (errno == EAGAIN && errno == EWOULDBLOCK)
-                            break;
-                        else
-                        {
-                            perror("accept failed");
-                            break;
-                        }
-                    }
-
-                    Connection *conn = new Connection;
-                    conn->fd = conn_fd;
-                    conn->read_offset = 0;
-                    conn->write_offset = 0;
-                    conn->client_addr = client_addr;
-                    conn->client_len = client_len;
-
-                    // 设置连接套接字为非阻塞模式
-                    set_nonblocking(conn_fd);
-
-                    // 将连接套接字添加到epoll实例中
-                    struct epoll_event client_ev;
-                    client_ev.events = EPOLLIN; // 监听可读事件
-                    client_ev.data.ptr = conn;  // 存储连接结构体指针
-
-                    // 添加到epoll
-                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &client_ev) == -1)
-                    {
-                        perror("epoll_ctl client_fd failed");
-                        close(conn_fd);
-                        delete conn;
-                        continue;
-                    }
-                    std::cout << "Accepted new connection, fd: " << conn_fd << std::endl;
-                }
+                _handle_connection();
+            }
+            else if (ptr->fd == _notify_fd)
+            {
+                uint64_t value;
+                read(_notify_fd, &value, sizeof(uint64_t));
+                // 处理通知事件
+                _handle_notify(value);
             }
             else
             {
                 // 处理客户端数据（读事件）
                 if (events[n].events & EPOLLIN)
                 {
-                    // 创建事件，并加入线程池
-                    // Task<Connection> *task = new Task<Connection>(ptr, READ);
-                    // thread_pool.enqueue(task);
-
-                    bool ret = ptr->handle_client_data();
-
-                    // 连接关闭或错误
-                    if (ret)
-                    {
-                        epoll_ctl(epfd, EPOLL_CTL_DEL, ptr->fd, nullptr);
-                        close(ptr->fd);
-                        delete ptr;
-                        // std::cout << "Connection closed" << std::endl;
-                    }
+                    // 将任务添加到线程池 相当于执行了 ptr->handle_client_data();
+                    thread_pool->enqueue(ptr);
                 }
                 else if (events[n].events & EPOLLOUT)
                 {
-                    // // 处理客户端数据（写事件）
-                    // // 创建事件，并加入线程池
-                    // Task<Connection> *task = new Task<Connection>(ptr, WRITE);
-                    // thread_pool.enqueue(task);
-
-                    // 没写完的再尝试写
-                    bool ret = ptr->handle_write();
-
-                    // 发送完成或错误
-                    if (ret)
-                    {
-                        epoll_ctl(epfd, EPOLL_CTL_DEL, ptr->fd, nullptr);
-                        close(ptr->fd);
-                        delete ptr;
-                    }
+                    thread_pool->enqueue(ptr);
                 }
             }
         }
     }
-
-    // 清理资源 关闭epoll实例和监听套接字
-    close(epfd);
-    close(listen_fd);
 }
 
-void Webserver::set_nonblocking(int fd)
+void Webserver::push_notify(Connection* conn)
+{
+    {
+        std::lock_guard<std::mutex> lock(notify_mutex);
+        notify_queue.push(conn);
+    }
+    uint64_t one = 1;
+    write(_notify_fd, &one, sizeof(uint64_t));
+}
+
+void Webserver::_set_nonblocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-void Webserver::close_connection(Connection *conn)
+void Webserver::_close_connection(Connection *conn)
 {
+    epoll_ctl(_epfd, EPOLL_CTL_DEL, conn->fd, nullptr);
     close(conn->fd);
     delete conn;
 }
+
+void Webserver::_handle_connection()
+{
+    while (1)
+    {
+        // 有新的连接请求
+        sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+
+        int conn_fd = accept(_listen_fd, (sockaddr *)&client_addr, &client_len);
+
+        if (conn_fd < 0)
+        {
+            if (errno == EAGAIN && errno == EWOULDBLOCK)
+                break;
+            else
+            {
+                perror("accept failed");
+                break;
+            }
+        }
+
+        Connection *conn = new Connection;
+        conn->fd = conn_fd;
+        conn->read_offset = 0;
+        conn->write_offset = 0;
+        conn->client_addr = client_addr;
+        conn->client_len = client_len;
+
+        // 设置连接套接字为非阻塞模式
+        _set_nonblocking(conn_fd);
+
+        // 将连接套接字添加到epoll实例中
+        epoll_event client_ev;
+        client_ev.events = EPOLLIN; // 监听可读事件
+        client_ev.data.ptr = conn;  // 存储连接结构体指针
+
+        // 添加到epoll
+        if (epoll_ctl(_epfd, EPOLL_CTL_ADD, conn_fd, &client_ev) == -1)
+        {
+            perror("epoll_ctl client_fd failed");
+            close(conn_fd);
+            delete conn;
+            continue;
+        }
+        // std::cout << "Accepted new connection, fd: " << conn_fd << std::endl;
+    }
+}
+
+// TODO: 完成处理来自线程池的通知
+void Webserver::_handle_notify(uint64_t value)
+{
+    // 处理来自线程池的通知 value表示有多少连接需要处理
+    for(int i = 0; i < value; ++i)
+    {
+        Connection *conn;
+        {
+            std::lock_guard<std::mutex> lock(notify_mutex);
+            conn = notify_queue.front();
+            notify_queue.pop();
+        }
+
+        if (conn->state == READ_DONE)
+        {
+            // 暂时不需要处理这个状态，因为worker不会触发READ_DONE状态
+        }
+        else if (conn->state == WRITE_DONE)
+        {
+            // 关闭连接
+            _close_connection(conn);
+        }
+        else if (conn->state == ERROR)
+        {
+            // 关闭连接
+            _close_connection(conn);
+        }
+    }
+}
+
