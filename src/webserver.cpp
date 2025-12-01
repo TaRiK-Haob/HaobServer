@@ -22,7 +22,7 @@ Webserver::~Webserver()
     delete thread_pool;
 }
 
-bool Webserver::init(const char *ip, int port)
+bool Webserver::init(const char *ip, int port, int thread_pool_size)
 {
     // 创建套接字
     _listen_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -85,7 +85,7 @@ bool Webserver::init(const char *ip, int port)
     }
 
     // 初始化线程池
-    thread_pool = new ThreadPool(this, 5); // 创建一个包含5个线程的线程池
+    thread_pool = new ThreadPool(this, thread_pool_size); // 创建一个包含5个线程的线程池
 
     _notify_fd = eventfd(0, EFD_NONBLOCK);
 

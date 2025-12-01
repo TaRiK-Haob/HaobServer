@@ -79,7 +79,7 @@ void Connection::handle_client_data()
                 // 因为是EPOLLOUT + 水平触发，所以读到非阻塞边界就停止
                 // 因此只需要退出循环，后续等待epoll_wait重新唤醒
                 // std::cout << "Reached non-blocking boundary on read for fd: " << this->fd << std::endl;
-                this->state = READ_DONE;
+                this->state = READ;
                 break; // 读到非阻塞边界，后续由epoll重新唤醒
             }
             else
@@ -109,10 +109,11 @@ void Connection::handle_client_data()
         // 请求不完整，继续等待数据
         this->state = READ;
         return;
-    }else
-    {
-        this->state = READ_DONE;
+    }else{
+        this->state = WRITE;
     }
+
+    // 解析请求并准备响应
 
     // 构造HTTP响应
     std::string body = "Hello World!\nYour IP is:" +
@@ -132,4 +133,10 @@ void Connection::handle_client_data()
 
     // 直接尝试写响应
     this->handle_write();
+}
+
+void http_parser(std::vector<char>& read_buffer)
+{
+    
+
 }

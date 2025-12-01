@@ -4,6 +4,8 @@
 
 #include <iostream>
 
+// TODO：加入condition_variable优化等待
+
 ThreadPool::ThreadPool(Webserver *webserver, size_t numThreads)
 {
     this->webserver = webserver;
@@ -40,7 +42,6 @@ bool ThreadPool::enqueue(Connection *conn)
     return true;
 }
 
-// TODO：加入condition_variable优化等待
 void ThreadPool::worker()
 {
     // 工作线程函数，从任务队列中获取任务并执行
@@ -71,8 +72,6 @@ void ThreadPool::worker()
         {
             // std::cout << "ThreadPool " << std::this_thread::get_id() << ": Handling WRITE for fd " << conn->fd << std::endl;
             conn->handle_write();
-        }else if(conn->state == READ_DONE){
-            
         }
 
         // 通知主线程处理结果，移除in_pool标志

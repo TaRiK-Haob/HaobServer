@@ -16,7 +16,7 @@ public:
     Webserver();
     ~Webserver();
 
-    bool init(const char * ip, int port);
+    bool init(const char * ip, int port, int thread_pool_size);
     void loop();
     void push_notify(Connection* conn);
 

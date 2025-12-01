@@ -6,7 +6,7 @@
 #include <atomic>
 
 #define BUFFER_SIZE 4096
-enum State {READ, WRITE, READ_DONE, WRITE_DONE, CLOSE, ERROR};
+enum State {READ, WRITE, WRITE_DONE, CLOSE, ERROR};
 
 class Connection
 {
