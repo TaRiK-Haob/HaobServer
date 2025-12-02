@@ -18,8 +18,6 @@ Webserver::~Webserver()
     close(_epfd);
     close(_listen_fd);
     close(_notify_fd);
-
-    delete thread_pool;
 }
 
 bool Webserver::init(const char *ip, int port, int thread_pool_size)
@@ -69,12 +67,12 @@ bool Webserver::init(const char *ip, int port, int thread_pool_size)
     }
 
     // 注册监听事件 监听的类型为可读事件 监听的文件描述符为listen_fd
-    Connection *conn_listen = new Connection;
-    conn_listen->fd = _listen_fd;
+
+    _conn_listen.fd = _listen_fd;
     epoll_event ev;
     ev.events = EPOLLIN;
-    ev.data.ptr = conn_listen;
-
+    ev.data.ptr = &_conn_listen;
+    
     // 将监听套接字添加到epoll实例
     if (epoll_ctl(_epfd, EPOLL_CTL_ADD, _listen_fd, &ev) == -1)
     {
@@ -85,16 +83,15 @@ bool Webserver::init(const char *ip, int port, int thread_pool_size)
     }
 
     // 初始化线程池
-    thread_pool = new ThreadPool(this, thread_pool_size); // 创建一个包含5个线程的线程池
+    // thread_pool = ThreadPool(this, thread_pool_size); // 创建一个包含5个线程的线程池
 
     _notify_fd = eventfd(0, EFD_NONBLOCK);
 
-    Connection *notify_ptr = new Connection;
-    notify_ptr->fd = _notify_fd;
-
+    _notify_conn.fd = _notify_fd;
     epoll_event notify_ev;
+
     notify_ev.events = EPOLLIN;
-    notify_ev.data.ptr = notify_ptr;
+    notify_ev.data.ptr = &_notify_conn;
     epoll_ctl(_epfd, EPOLL_CTL_ADD, _notify_fd, &notify_ev);
 
     std::cout << "Server listening on port 8080..." << std::endl;
@@ -141,12 +138,12 @@ void Webserver::loop()
                 if (events[n].events & EPOLLIN)
                 {
                     // 将任务添加到线程池 相当于执行了 ptr->handle_client_data();
-                    thread_pool->enqueue(ptr);
+                    thread_pool.enqueue(ptr);
                 }
                 else if (events[n].events & EPOLLOUT)
                 {
                     std::cout << "Handling EPOLLOUT event for fd: " << ptr->fd << std::endl;
-                    thread_pool->enqueue(ptr);
+                    thread_pool.enqueue(ptr);
                 }
             }
         }

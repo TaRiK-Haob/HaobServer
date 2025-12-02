@@ -113,7 +113,10 @@ void Connection::handle_client_data()
         this->state = WRITE;
     }
 
-    // 解析请求并准备响应
+    std::cout << std::string(this->read_buffer.begin(), this->read_buffer.end()) << std::endl;
+
+    // TODO：解析请求并准备响应
+    _http_parser(this->read_buffer);
 
     // 构造HTTP响应
     std::string body = "Hello World!\nYour IP is:" +
@@ -135,8 +138,9 @@ void Connection::handle_client_data()
     this->handle_write();
 }
 
-void http_parser(std::vector<char>& read_buffer)
+// 解析HTTP请求的简单函数（可扩展）
+// TODO: keep-alive 支持，不同方法支持等，将连接信息存储在Connection类对象（this）中
+void Connection::_http_parser(std::vector<char>& read_buffer)
 {
-    
 
 }

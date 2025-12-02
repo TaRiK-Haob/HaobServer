@@ -1,7 +1,7 @@
 # HaoBServer
 一个丑陋的webserver实现。
 
-TODO: HTTP的完整解析和响应 以及更高级的优化方法
+TODO: HTTP的完整解析和响应 以及更高级的优化方法 CGI(FastCGI)
 
 ## 目录结构
 ``` bash

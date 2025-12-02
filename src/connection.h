@@ -12,6 +12,7 @@ class Connection
 {
 public:
     static int epfd; // epoll实例的文件描述符
+
     int fd;
     std::vector<char> read_buffer;
     std::vector<char> write_buffer;
@@ -27,5 +28,8 @@ public:
     State state = READ;
 
     std::atomic<bool> in_pool{false};
+
+private:
+    void _http_parser(std::vector<char>& read_buffer);
 };
 #endif // CONNECTION_H
